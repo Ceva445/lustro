@@ -4,6 +4,11 @@ import httpx
 
 router = APIRouter()
 
+headers = {
+    "ngrok-skip-browser-warning": "anyvalue",
+    "User-Agent": "FastAPI-Adapter/1.0"
+}
+
 @router.post("/ksiengowy/add_url")
 async def add_ngrok_url(request: Request, data: NgrokRequest):
     """
@@ -46,13 +51,11 @@ async def ksiengowy_adapter(request: Request, data: AdapterRequest):
 
     # Form the target URL for forwarding
     target_url = f"{ngrok_url}/{data.doc_type}"
-
-    # JSON payload to forward
     payload = data.model_dump()
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         try:
-            response = await client.post(target_url, json=payload)
+            response = await client.post(target_url, json=payload, headers=headers)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
