@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Request
+
 from app.schemas import NgrokRequest, AdapterRequest
 import httpx
 
@@ -37,11 +38,18 @@ async def get_ngrok_url(request: Request):
         "ngrok_url": ngrok_url
     }
 
+
 @router.post("/ksiengowy/adapter")
-async def ksiengowy_adapter(request: Request, data: AdapterRequest):
+async def ksiengowy_adapter(
+    request: Request,
+    data: AdapterRequest,
+    background_tasks: BackgroundTasks
+):
     """
     Accepts JSON and forwards it to the URL stored in the global cache.
+    The AdapterRequest now includes wait_response: bool to control behavior.
     """
+
     cache = request.app.state.cache
 
     # Check if URL exists in cache
@@ -51,7 +59,26 @@ async def ksiengowy_adapter(request: Request, data: AdapterRequest):
 
     # Form the target URL for forwarding
     target_url = f"{ngrok_url}/{data.doc_type}"
-    payload = data.model_dump()
+
+    # Exclude wait_response from the forwarded payload
+    payload = data.model_dump(exclude={"wait_response"})
+
+    # Fire-and-forget forwarding task
+    async def forward_task():
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                await client.post(target_url, json=payload, headers=headers)
+            except Exception as e:
+                print(f"Forwarding error: {e}")
+
+    if not data.wait_response:
+        background_tasks.add_task(forward_task)
+
+        return {
+            "status": "forwarded",
+            "target": target_url,
+            "mode": "fire-and-forget"
+        }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
@@ -62,6 +89,7 @@ async def ksiengowy_adapter(request: Request, data: AdapterRequest):
     return {
         "status": "forwarded",
         "target": target_url,
+        "mode": "wait-response",
         "response_status": response.status_code,
         "response_data": response.json() if response.content else None
     }

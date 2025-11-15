@@ -7,3 +7,4 @@ class AdapterRequest(BaseModel):
     doc_type: str
     file_url: str
     forward_url: str
+    wait_response: bool = False
