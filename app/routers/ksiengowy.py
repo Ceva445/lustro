@@ -61,7 +61,7 @@ async def ksiengowy_adapter(
     target_url = f"{ngrok_url}/{data.doc_type}"
 
     # Exclude wait_response from the forwarded payload
-    payload = data.model_dump(exclude={"wait_response"})
+    payload = data.model_dump(exclude={"wait_response", "doc_type"})
 
     # Fire-and-forget forwarding task
     async def forward_task():
