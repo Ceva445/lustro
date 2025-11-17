@@ -1,6 +1,9 @@
-from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Request
-
+from fastapi import APIRouter, Request, HTTPException, Depends, BackgroundTasks, Request
 from app.schemas import NgrokRequest, AdapterRequest
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.models import NgrokURL
+from app.database import get_db
 import httpx
 
 router = APIRouter()
@@ -10,33 +13,55 @@ headers = {
     "User-Agent": "FastAPI-Adapter/1.0"
 }
 
-@router.post("/ksiengowy/add_url")
-async def add_ngrok_url(request: Request, data: NgrokRequest):
-    """
-    Receives JSON {"ngrok_url": "..."} and adds/updates it in the global cache.
-    """
-    cache = request.app.state.cache
-    cache["ngrok_url"] = data.ngrok_url
 
+@router.post("/ksiengowy/add_url")
+async def add_ngrok_url(
+    request: Request,
+    data: NgrokRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    cache = request.app.state.cache
+
+    # Read record (async)
+    result = await db.execute(select(NgrokURL).where(NgrokURL.id == 1))
+    record = result.scalar_one_or_none()
+
+    if record:
+        record.url = data.ngrok_url
+    else:
+        record = NgrokURL(id=1, url=data.ngrok_url)
+        db.add(record)
+
+    await db.commit()
+
+    cache["ngrok_url"] = data.ngrok_url
     return {
-        "status": "success",
-        "cached_value": cache["ngrok_url"]
-    }
+        "status": "success", 
+        "ngrok_url": data.ngrok_url
+        }
+
 
 @router.get("/ksiengowy/get_url")
-async def get_ngrok_url(request: Request):
-    """
-    Returns the saved ngrok_url from the global cache.
-    """
+async def get_ngrok_url(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
     cache = request.app.state.cache
 
-    ngrok_url = cache.get("ngrok_url")
-    if not ngrok_url:
-        raise HTTPException(status_code=404, detail="ngrok_url not found in cache")
+    # cache first
+    url = cache.get("ngrok_url")
+    if url:
+        return {"ngrok_url": url}
 
-    return {
-        "ngrok_url": ngrok_url
-    }
+    # DB lookup
+    result = await db.execute(select(NgrokURL).where(NgrokURL.id == 1))
+    record = result.scalar_one_or_none()
+
+    if not record:
+        raise HTTPException(status_code=404, detail="ngrok_url not found")
+
+    cache["ngrok_url"] = record.url
+    return {"ngrok_url": record.url}
 
 
 @router.post("/ksiengowy/adapter")
